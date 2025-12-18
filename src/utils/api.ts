@@ -602,27 +602,35 @@ function buildISQExtractionPrompt(
 ${urlsText}
 
 Extract:
-1. CONFIG ISQ (exactly 1): Must influence price, options must match URLs exactly
-2. KEY ISQs (exactly 3): Most repeated + category defining
+1. CONFIG ISQ (exactly 1): Must influence price and shipping, options must match URLs exactly
+2. KEY ISQs (exactly 3): Most repeated specifications across URLs
+3. BUYER ISQs (up to 2): Key buyer search patterns, high-value filtering specs
 
 STRICT RULES:
-- DO NOT invent specs
-- Extract ONLY specs that appear in AT LEAST 2 URLs
+- DO NOT invent specs - extract ONLY what appears in URLs
+- Extract ONLY specs/options that appear in AT LEAST 2 URLs
 - If a spec appears in only 1 URL → IGNORE it
-- If options differ, keep ONLY options that appear in AT LEAST 2 URLs
-- Do NOT guess missing options
-- EXCLUSION: If spec is in MCAT Name (e.g., "Material"), exclude it.
+- If options differ across URLs, keep ONLY options that appear in AT LEAST 2 URLs
+- Do NOT guess or add missing options
+- Do NOT include specs mentioned in the MCAT names
+- For buyers: extract the most important filtering/search specifications users would filter by
+
+OPTION EXTRACTION:
+- Extract EXACT option values from URLs (maintain original formatting, prefixes like "SS", "MS", "IS", "ASTM")
+- List options in order of frequency (most common first)
+- Maximum 10 options per spec (include top most frequently appearing)
 
 REQUIREMENTS:
-- Return ONLY valid JSON.
-- Absolutely no text, notes, or markdown outside JSON.
-- Output MUST start with { and end with }.
+- Return ONLY valid JSON
+- Absolutely no text, notes, or markdown outside JSON
+- Output MUST start with { and end with }
 - JSON must be valid and parseable
 
 RESPOND WITH PURE JSON ONLY - Nothing else. No markdown, no explanation, just raw JSON that looks exactly like this:
 {
   "config": {"name": "...", "options": [...]},
-  "keys": [{"name": "...", "options": [...]}, ...]
+  "keys": [{"name": "...", "options": [...]}, ...],
+  "buyers": [{"name": "...", "options": [...]}, ...]
 }`;
 }
 
