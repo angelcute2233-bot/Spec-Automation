@@ -1,5 +1,5 @@
-import React from "react";
-import { Download } from "lucide-react";
+import React, { useState } from "react";
+import { Download, ChevronDown, ChevronUp } from "lucide-react";
 import type { ISQ } from "../types";
 
 interface Stage2ResultsProps {
@@ -13,6 +13,7 @@ interface Stage2ResultsProps {
 
 export default function Stage2Results({ isqs, onDownloadExcel }: Stage2ResultsProps) {
   const buyers = isqs.buyers || [];
+  const [showDebug, setShowDebug] = useState(false);
 
   const renderISQCard = (isq: ISQ, type: "config" | "key" | "buyer", index?: number) => {
     const colorMap = {
@@ -92,6 +93,21 @@ export default function Stage2Results({ isqs, onDownloadExcel }: Stage2ResultsPr
             <Download size={20} />
             Download Excel Report
           </button>
+        </div>
+
+        <div className="border border-gray-300 rounded-lg">
+          <button
+            onClick={() => setShowDebug(!showDebug)}
+            className="w-full flex items-center justify-between px-6 py-4 bg-gray-100 hover:bg-gray-200 transition font-semibold text-gray-900"
+          >
+            <span>Debug: Raw Data</span>
+            {showDebug ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+          </button>
+          {showDebug && (
+            <pre className="p-6 bg-gray-900 text-green-400 text-xs overflow-auto max-h-96 rounded-b-lg font-mono">
+              {JSON.stringify(isqs, null, 2)}
+            </pre>
+          )}
         </div>
       </div>
     </div>

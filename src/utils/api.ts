@@ -65,6 +65,7 @@ function extractJSONFromGemini(response) {
       }
 
       if (part.json) {
+        console.log("Found native JSON in response:", part.json);
         return part.json;
       }
     }
@@ -84,10 +85,14 @@ function extractJSONFromGemini(response) {
 
     cleaned = cleaned.replace(/,(\s*[\]}])/g, "$1");
 
+    console.log("Cleaned JSON text:", cleaned.substring(0, 300));
+
     try {
-      return JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned);
+      console.log("Successfully parsed JSON:", JSON.stringify(parsed).substring(0, 500));
+      return parsed;
     } catch (parseErr) {
-      console.warn("JSON parse failed, returning null for fallback:", parseErr);
+      console.warn("JSON parse failed:", parseErr, "Raw text:", rawText.substring(0, 500));
       return null;
     }
   } catch (error) {
@@ -192,11 +197,14 @@ export async function extractISQWithGemini(
     const data = await response.json();
     let parsed = extractJSONFromGemini(data);
 
+    console.log("Parsed ISQ data:", parsed);
+
     if (parsed && parsed.config && parsed.config.name) {
+      const deduplicatedISQs = deduplicateISQs(parsed.config, parsed.keys || [], parsed.buyers || []);
       return {
-        config: parsed.config,
-        keys: parsed.keys || [],
-        buyers: parsed.buyers || []
+        config: deduplicatedISQs.config,
+        keys: deduplicatedISQs.keys,
+        buyers: deduplicatedISQs.buyers
       };
     }
 
@@ -205,7 +213,12 @@ export async function extractISQWithGemini(
       const fallbackParsed = parseStage2FromText(textContent);
       if (fallbackParsed && fallbackParsed.config && fallbackParsed.config.name) {
         console.log("Parsed ISQ from text fallback");
-        return fallbackParsed;
+        const deduplicatedISQs = deduplicateISQs(fallbackParsed.config, fallbackParsed.keys || [], fallbackParsed.buyers || []);
+        return {
+          config: deduplicatedISQs.config,
+          keys: deduplicatedISQs.keys,
+          buyers: deduplicatedISQs.buyers
+        };
       }
     }
 
@@ -303,7 +316,45 @@ function parseStage2FromText(text: string): { config: ISQ; keys: ISQ[]; buyers: 
 
   if (!config.name) return null;
 
+  console.log("Parsed from text fallback - Config:", config, "Keys:", keys, "Buyers:", buyers);
   return { config, keys, buyers };
+}
+
+function ensureISQStructure(isq: any): ISQ {
+  return {
+    name: isq.name || "",
+    options: Array.isArray(isq.options) ? isq.options : [],
+    type: isq.type || "key"
+  };
+}
+
+function deduplicateISQs(
+  config: ISQ,
+  keys: ISQ[],
+  buyers: ISQ[]
+): { config: ISQ; keys: ISQ[]; buyers: ISQ[] } {
+  const configNormalized = normalizeSpecName(config.name);
+
+  const deduplicatedKeys = keys
+    .map(ensureISQStructure)
+    .filter(key => {
+      const keyNormalized = normalizeSpecName(key.name);
+      return keyNormalized !== configNormalized;
+    });
+
+  const deduplicatedBuyers = buyers
+    .map(ensureISQStructure)
+    .filter(buyer => {
+      const buyerNormalized = normalizeSpecName(buyer.name);
+      return buyerNormalized !== configNormalized &&
+             !deduplicatedKeys.some(key => normalizeSpecName(key.name) === buyerNormalized);
+    });
+
+  return {
+    config: ensureISQStructure(config),
+    keys: deduplicatedKeys,
+    buyers: deduplicatedBuyers
+  };
 }
 
 function generateFallbackStage2(): { config: ISQ; keys: ISQ[]; buyers: ISQ[] } {
