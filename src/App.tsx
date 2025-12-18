@@ -48,6 +48,34 @@ function App() {
     }
   };
 
+  const handleRetry = async () => {
+    if (!inputData) return;
+    setLoading(true);
+    setError("");
+    setStage1Data(null);
+    setIsqs(null);
+    setActiveTab("stage1");
+
+    try {
+      setProcessingStage("Generating Stage 1 specifications...");
+      const result1 = await generateStage1WithGemini(inputData);
+      setStage1Data(result1);
+
+      setProcessingStage("Extracting Stage 2 ISQs from URLs...");
+      const result2 = await extractISQWithGemini(inputData, inputData.urls);
+      setIsqs(result2);
+
+      setProcessingStage("All stages complete!");
+      setStage("stages");
+    } catch (err) {
+      setError(`Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+      console.error(err);
+    } finally {
+      setLoading(false);
+      setProcessingStage("");
+    }
+  };
+
   const handleReset = () => {
     setStage("stage0");
     setInputData(null);
@@ -124,13 +152,24 @@ function App() {
                   <h1 className="text-3xl font-bold text-gray-900">Specification Results</h1>
                   <p className="text-gray-600 mt-1">View all three stages in the tabs below</p>
                 </div>
-                <button
-                  onClick={handleReset}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white font-semibold rounded-lg hover:from-gray-700 hover:to-gray-800 transition"
-                >
-                  <RefreshCw size={20} />
-                  Reset
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleRetry}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 transition"
+                  >
+                    <RefreshCw size={20} />
+                    Retry
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white font-semibold rounded-lg hover:from-gray-700 hover:to-gray-800 disabled:opacity-50 transition"
+                  >
+                    <RefreshCw size={20} />
+                    Reset
+                  </button>
+                </div>
               </div>
 
               <div className="border-b border-gray-200 mb-8">

@@ -250,6 +250,17 @@ function normalizeSpecName(name: string): string {
     .trim();
 }
 
+function normalizeOptionValue(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^ss\s*/i, "")
+    .replace(/^ms\s*/i, "")
+    .replace(/^is\s*/i, "")
+    .replace(/^astm\s*/i, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 function selectTopBuyerISQs(
   primarySpecs: CommonSpecItem[],
   secondarySpecs: CommonSpecItem[],
@@ -298,24 +309,42 @@ function filterOptions(
   isqs: { config: ISQ; keys: ISQ[]; buyers: ISQ[] },
   specName: string
 ): string[] {
-  const stage2Options = new Set<string>();
+  const stage2OptionsRaw: string[] = [];
+  const normalizedSpecName = normalizeSpecName(specName);
 
-  if (isqs.config.name === specName) {
-    isqs.config.options.forEach((opt) => stage2Options.add(opt));
+  if (normalizeSpecName(isqs.config.name) === normalizedSpecName) {
+    stage2OptionsRaw.push(...isqs.config.options);
   }
   isqs.keys.forEach((key) => {
-    if (key.name === specName) {
-      key.options.forEach((opt) => stage2Options.add(opt));
+    if (normalizeSpecName(key.name) === normalizedSpecName) {
+      stage2OptionsRaw.push(...key.options);
     }
   });
   isqs.buyers.forEach((buyer) => {
-    if (buyer.name === specName) {
-      buyer.options.forEach((opt) => stage2Options.add(opt));
+    if (normalizeSpecName(buyer.name) === normalizedSpecName) {
+      stage2OptionsRaw.push(...buyer.options);
     }
   });
 
-  const commonOptions = allOptions.filter((opt) => stage2Options.has(opt));
-  const remainingOptions = allOptions.filter((opt) => !stage2Options.has(opt));
+  const stage2OptionsNormalized = new Map<string, string>();
+  stage2OptionsRaw.forEach((opt) => {
+    const normalized = normalizeOptionValue(opt);
+    if (!stage2OptionsNormalized.has(normalized)) {
+      stage2OptionsNormalized.set(normalized, opt);
+    }
+  });
+
+  const commonOptions: string[] = [];
+  const remainingOptions: string[] = [];
+
+  allOptions.forEach((opt) => {
+    const normalized = normalizeOptionValue(opt);
+    if (stage2OptionsNormalized.has(normalized)) {
+      commonOptions.push(opt);
+    } else {
+      remainingOptions.push(opt);
+    }
+  });
 
   const combined = [...commonOptions, ...remainingOptions];
   return combined.slice(0, 8);
