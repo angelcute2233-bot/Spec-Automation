@@ -165,28 +165,47 @@ export async function extractISQWithGemini(
   await sleep(7000);
 
   const urlContents = await Promise.all(urls.map(fetchURL));
-  const prompt = buildISQExtractionPrompt(input, urls, urlContents);
+
+  // Attempt 1: Extract ISQs
+  let result = await attemptISQExtraction(input, urls, urlContents);
+
+  if (result && isValidISQResult(result)) {
+    console.log("Stage 2 extraction valid on first attempt");
+    return result;
+  }
+
+  // Attempt 2: Validate and re-extract if needed
+  console.log("First attempt insufficient, validating and re-extracting...");
+  await sleep(3000);
+  result = await attemptISQExtraction(input, urls, urlContents, true);
+
+  if (result && isValidISQResult(result)) {
+    console.log("Stage 2 extraction valid on second attempt");
+    return result;
+  }
+
+  console.warn("Stage 2 extraction invalid after retries, returning available data");
+  return result || generateFallbackStage2();
+}
+
+async function attemptISQExtraction(
+  input: InputData,
+  urls: string[],
+  urlContents: string[],
+  isRetry: boolean = false
+): Promise<{ config: ISQ; keys: ISQ[]; buyers: ISQ[] } | null> {
+  const prompt = buildISQExtractionPrompt(input, urls, urlContents, isRetry);
 
   try {
     const response = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${STAGE2_API_KEY}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
+          contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.7,
+            temperature: isRetry ? 0.5 : 0.7,
             maxOutputTokens: 4096,
             responseMimeType: "application/json"
           },
@@ -196,8 +215,6 @@ export async function extractISQWithGemini(
 
     const data = await response.json();
     let parsed = extractJSONFromGemini(data);
-
-    console.log("Parsed ISQ data:", parsed);
 
     if (parsed && parsed.config && parsed.config.name) {
       const deduplicatedISQs = deduplicateISQs(parsed.config, parsed.keys || [], parsed.buyers || []);
@@ -222,18 +239,20 @@ export async function extractISQWithGemini(
       }
     }
 
-    return generateFallbackStage2();
+    return null;
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-
-    if (errorMsg.includes("429") || errorMsg.includes("quota")) {
-      console.error("Stage 2 API Key quota exhausted or rate limited");
-      throw new Error("Stage 2 API key quota exhausted. Please check your API limits.");
-    }
-
-    console.warn("Stage 2 API error:", error);
-    return generateFallbackStage2();
+    console.warn("Stage 2 extraction attempt failed:", error);
+    return null;
   }
+}
+
+function isValidISQResult(result: { config: ISQ; keys: ISQ[]; buyers: ISQ[] }): boolean {
+  if (!result.config || !result.config.name) return false;
+
+  const configHasOptions = result.config.options && result.config.options.length >= 2;
+  const keysHaveOptions = result.keys && result.keys.some(k => k.options && k.options.length >= 2);
+
+  return configHasOptions || keysHaveOptions;
 }
 
 function extractRawText(response: any): string {
@@ -334,24 +353,29 @@ function deduplicateISQs(
   buyers: ISQ[]
 ): { config: ISQ; keys: ISQ[]; buyers: ISQ[] } {
   const configNormalized = normalizeSpecName(config.name);
+  const configStructured = ensureISQStructure(config);
 
   const deduplicatedKeys = keys
     .map(ensureISQStructure)
     .filter(key => {
       const keyNormalized = normalizeSpecName(key.name);
-      return keyNormalized !== configNormalized;
+      const isNotDuplicate = keyNormalized !== configNormalized;
+      const hasMinOptions = key.options && key.options.length >= 2;
+      return isNotDuplicate && hasMinOptions;
     });
 
   const deduplicatedBuyers = buyers
     .map(ensureISQStructure)
     .filter(buyer => {
       const buyerNormalized = normalizeSpecName(buyer.name);
-      return buyerNormalized !== configNormalized &&
-             !deduplicatedKeys.some(key => normalizeSpecName(key.name) === buyerNormalized);
+      const isNotConfigDuplicate = buyerNormalized !== configNormalized;
+      const isNotKeyDuplicate = !deduplicatedKeys.some(key => normalizeSpecName(key.name) === buyerNormalized);
+      const hasMinOptions = buyer.options && buyer.options.length >= 2;
+      return isNotConfigDuplicate && isNotKeyDuplicate && hasMinOptions;
     });
 
   return {
-    config: ensureISQStructure(config),
+    config: configStructured,
     keys: deduplicatedKeys,
     buyers: deduplicatedBuyers
   };
@@ -642,43 +666,82 @@ REQUIRED JSON SCHEMA (match keys + nesting exactly)
 function buildISQExtractionPrompt(
   input: InputData,
   urls: string[],
-  contents: string[]
+  contents: string[],
+  isRetry: boolean = false
 ): string {
   const urlsText = urls
-    .map((url, i) => `URL ${i + 1}: ${url}\nContent: ${contents[i].substring(0, 500)}...`)
-    .join("\n\n");
+    .map((url, i) => `URL ${i + 1}: ${url}\n${contents[i].substring(0, 800)}`)
+    .join("\n\n---\n\n");
 
-  return `Extract ISQs from these URLs for: ${input.mcats.map((m) => m.mcat_name).join(", ")}
+  const retryInstructions = isRetry ? `
+RETRY NOTICE: Previous extraction was insufficient. Be MORE AGGRESSIVE in finding ALL visible specifications and their options.
+- Extract EVERY specification you can find in the content
+- Include options that appear as filter values, product variations, form fields
+- Look for tables, dropdown menus, filters, facets - ALL contain real buyer options
+- Minimum: CONFIG must have AT LEAST 3 options, each KEY ISQ must have AT LEAST 2 options
+` : "";
 
+  return `You are an expert at extracting product specifications from HTML/web content.
+
+TASK: Extract ISQs (Important Search Queries) from these ${urls.length} buyer websites for category: ${input.mcats.map((m) => m.mcat_name).join(", ")}
+
+${retryInstructions}
+
+WEB CONTENT TO EXTRACT FROM:
 ${urlsText}
 
-Extract:
-1. CONFIG ISQ (exactly 1): Must influence price and shipping, options must match URLs exactly
-2. KEY ISQs (exactly 3): Most repeated specifications across URLs
+---
 
-STRICT RULES:
-- DO NOT invent specs - extract ONLY what appears in URLs
-- Extract ONLY specs/options that appear in AT LEAST 2 URLs
-- If a spec appears in only 1 URL → IGNORE it
-- If options differ across URLs, keep ONLY options that appear in AT LEAST 2 URLs
-- Do NOT guess or add missing options
-- Do NOT include specs mentioned in the MCAT names
+EXTRACTION REQUIREMENTS:
 
-OPTION EXTRACTION:
-- Extract EXACT option values from URLs (maintain original formatting, prefixes like "SS", "MS", "IS", "ASTM")
-- List options in order of frequency (most common first)
-- Maximum 10 options per spec (include top most frequently appearing)
+1. CONFIG ISQ (exactly 1 - CRITICAL):
+   - Specification that influences PRICE and PRODUCT VARIATION
+   - Example: For steel plates: "Grade" (SS304, SS316, SS430, etc)
+   - MUST have minimum 3 options extracted from URLs
+   - Options MUST appear as actual product choices in the content
 
-REQUIREMENTS:
-- Return ONLY valid JSON
-- Absolutely no text, notes, or markdown outside JSON
-- Output MUST start with { and end with }
-- JSON must be valid and parseable
+2. KEY ISQs (EXACTLY 3):
+   - Most frequently appearing specifications across ALL URLs
+   - Must be repeated in at least 2 URLs to be included
+   - Each MUST have minimum 2 options
+   - Order by importance/frequency in the websites
 
-RESPOND WITH PURE JSON ONLY - Nothing else. No markdown, no explanation, just raw JSON that looks exactly like this:
+CRITICAL RULES - DO NOT VIOLATE:
+✓ Extract ONLY what visibly appears in URLs (not invented)
+✓ Each ISQ name must be UNIQUE - NO DUPLICATES between CONFIG and KEYS
+✓ Every option must appear in AT LEAST 2 URLs (cross-validate)
+✓ NEVER guess options - only extract what buyer websites actually show
+✓ If option values differ, merge but keep most common format
+✓ Maintain exact formatting (e.g., "SS 304" not "ss304")
+✓ Skip specs mentioned in category name (e.g., "Steel" if category is "Steel Plates")
+✓ MINIMUM requirements: CONFIG has 3+ options, each KEY has 2+ options
+
+VALIDATION CHECKLIST:
+- CONFIG spec name is meaningful and influences pricing? YES/NO
+- CONFIG has 3+ distinct options? YES/NO
+- Do any KEYS duplicate CONFIG name? YES/NO → if YES, remove duplicate KEY
+- Each KEY has 2+ options? YES/NO
+- All options extracted from visible content? YES/NO
+- Are there more than 3 high-frequency specs? YES/NO → if YES, select top 3 by frequency
+
+OPTIONS FORMAT:
+- Extract EXACT values as they appear on websites
+- Maintain original case and spacing (e.g., "SS 304" not "Ss 304")
+- Include units where shown (e.g., "10mm" not "10")
+- Maximum 10 options per spec, ordered by frequency
+- Remove duplicates within same spec
+
+RESPOND WITH VALID JSON ONLY - No markdown, no explanation, no notes:
 {
-  "config": {"name": "...", "options": [...]},
-  "keys": [{"name": "...", "options": [...]}, ...]
+  "config": {
+    "name": "Spec Name",
+    "options": ["Option1", "Option2", "Option3", "Option4", "Option5"]
+  },
+  "keys": [
+    {"name": "Spec2", "options": ["Val1", "Val2", "Val3"]},
+    {"name": "Spec3", "options": ["Val1", "Val2"]},
+    {"name": "Spec4", "options": ["Val1", "Val2", "Val3"]}
+  ]
 }`;
 }
 

@@ -12,8 +12,13 @@ interface Stage2ResultsProps {
 }
 
 export default function Stage2Results({ isqs, onDownloadExcel }: Stage2ResultsProps) {
-  const buyers = isqs.buyers || [];
   const [showDebug, setShowDebug] = useState(false);
+
+  const hasMinOptions = (isq: ISQ) => isq.options && isq.options.length >= 2;
+
+  const config = hasMinOptions(isqs.config) ? isqs.config : null;
+  const keys = (isqs.keys || []).filter(hasMinOptions);
+  const buyers = (isqs.buyers || []).filter(hasMinOptions);
 
   const renderISQCard = (isq: ISQ, type: "config" | "key" | "buyer", index?: number) => {
     const colorMap = {
@@ -59,23 +64,30 @@ export default function Stage2Results({ isqs, onDownloadExcel }: Stage2ResultsPr
       <p className="text-gray-600 mb-8">Review the extracted ISQs from buyer websites below</p>
 
       <div className="space-y-8">
-        {/* Config ISQ */}
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Config ISQ</h3>
-          {renderISQCard(isqs.config, "config")}
-        </div>
-
-        {/* Key ISQs */}
-        {isqs.keys && isqs.keys.length > 0 && (
+        {config ? (
           <div className="mb-8">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Key ISQs ({isqs.keys.length})</h3>
-            <div className="grid gap-4">
-              {isqs.keys.map((isq, idx) => renderISQCard(isq, "key", idx))}
-            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Config ISQ</h3>
+            {renderISQCard(config, "config")}
+          </div>
+        ) : (
+          <div className="mb-8 bg-red-50 border border-red-200 p-4 rounded-lg">
+            <p className="text-red-800 text-sm">Config ISQ needs at least 2 options to display</p>
           </div>
         )}
 
-        {/* Buyer ISQs */}
+        {keys.length > 0 ? (
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Key ISQs ({keys.length})</h3>
+            <div className="grid gap-4">
+              {keys.map((isq, idx) => renderISQCard(isq, "key", idx))}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-8 bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+            <p className="text-yellow-800 text-sm">No Key ISQs with minimum 2 options found</p>
+          </div>
+        )}
+
         {buyers.length > 0 && (
           <div className="mb-8">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">Buyer ISQs ({buyers.length})</h3>

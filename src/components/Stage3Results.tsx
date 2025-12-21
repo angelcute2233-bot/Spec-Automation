@@ -275,31 +275,38 @@ function selectTopBuyerISQs(
 
   primarySpecs.forEach((spec) => {
     const normalizedName = normalizeSpecName(spec.spec_name);
-    const isConfigKey = stage2ConfigKeyNormalized.has(normalizedName);
-    const priority = isConfigKey ? 0 : 1;
+    const isStage2Common = stage2ConfigKeyNormalized.has(normalizedName);
+    const priority = isStage2Common ? 0 : 1;
 
-    candidates.push({
-      spec_name: spec.spec_name,
-      options: spec.options,
-      category: "Primary",
-      priority,
-    });
+    if (spec.options && spec.options.length >= 2) {
+      candidates.push({
+        spec_name: spec.spec_name,
+        options: spec.options.slice(0, 8),
+        category: "Primary",
+        priority,
+      });
+    }
   });
 
   secondarySpecs.forEach((spec) => {
     const normalizedName = normalizeSpecName(spec.spec_name);
-    const isConfigKey = stage2ConfigKeyNormalized.has(normalizedName);
-    const priority = isConfigKey ? 2 : 3;
+    const isStage2Common = stage2ConfigKeyNormalized.has(normalizedName);
+    const priority = isStage2Common ? 2 : 3;
 
-    candidates.push({
-      spec_name: spec.spec_name,
-      options: spec.options,
-      category: "Secondary",
-      priority,
-    });
+    if (spec.options && spec.options.length >= 2) {
+      candidates.push({
+        spec_name: spec.spec_name,
+        options: spec.options.slice(0, 8),
+        category: "Secondary",
+        priority,
+      });
+    }
   });
 
-  candidates.sort((a, b) => a.priority - b.priority);
+  candidates.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return b.options.length - a.options.length;
+  });
 
   return candidates.slice(0, 2) as BuyerISQItem[];
 }
