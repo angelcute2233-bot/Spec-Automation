@@ -645,7 +645,7 @@ function buildISQExtractionPrompt(
   contents: string[]
 ): string {
   const urlsText = urls
-    .map((url, i) => `URL ${i + 1}: ${url}\nContent: ${contents[i].substring(0, 1000)}...`)
+    .map((url, i) => `URL ${i + 1}: ${url}\nContent: ${contents[i].substring(0, 500)}...`)
     .join("\n\n");
 
   return `Extract ISQs from these URLs for: ${input.mcats.map((m) => m.mcat_name).join(", ")}
@@ -655,7 +655,6 @@ ${urlsText}
 Extract:
 1. CONFIG ISQ (exactly 1): Must influence price and shipping, options must match URLs exactly
 2. KEY ISQs (exactly 3): Most repeated specifications across URLs
-3. BUYER ISQs (up to 2): Key buyer search patterns, high-value filtering specs
 
 STRICT RULES:
 - DO NOT invent specs - extract ONLY what appears in URLs
@@ -664,7 +663,6 @@ STRICT RULES:
 - If options differ across URLs, keep ONLY options that appear in AT LEAST 2 URLs
 - Do NOT guess or add missing options
 - Do NOT include specs mentioned in the MCAT names
-- For buyers: extract the most important filtering/search specifications users would filter by
 
 OPTION EXTRACTION:
 - Extract EXACT option values from URLs (maintain original formatting, prefixes like "SS", "MS", "IS", "ASTM")
@@ -680,8 +678,7 @@ REQUIREMENTS:
 RESPOND WITH PURE JSON ONLY - Nothing else. No markdown, no explanation, just raw JSON that looks exactly like this:
 {
   "config": {"name": "...", "options": [...]},
-  "keys": [{"name": "...", "options": [...]}, ...],
-  "buyers": [{"name": "...", "options": [...]}, ...]
+  "keys": [{"name": "...", "options": [...]}, ...]
 }`;
 }
 
